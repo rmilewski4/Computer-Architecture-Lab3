@@ -1,6 +1,6 @@
-mu-mips: mu-mips.c
+mu-riscv: mu-riscv.c
 	gcc -Wall -g -O2 $^ -o $@
 
 .PHONY: clean
 clean:
-	rm -rf *.o *~ mu-mips
+	rm -rf *.o *~ mu-riscv
