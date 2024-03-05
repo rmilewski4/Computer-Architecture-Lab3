@@ -325,23 +325,204 @@ void handle_pipeline()
 /************************************************************/
 void WB()
 {
-	/*IMPLEMENT THIS*/
+	INSTRUCTION_COUNT++;
 }
 
 /************************************************************/
 /* memory access (MEM) pipeline stage:                                                          */
 /************************************************************/
+
+void MEM_load(uint32_t instruction){
+	uint32_t funct3 = (instruction & 28672) >> 12;
+	
+	switch(funct3){
+		case(0): //lb - 8 bits
+			MEM_WB.LMD = MEM_WB.ALUOutput & 255;
+			break;
+
+		case(1): //lh - 16 bits
+			MEM_WB.LMD = MEM_WB.ALUOutput & 65535;
+			break;
+
+		case(2): //lw - 32 bits
+			MEM_WB.LMD = MEM_WB.ALUOutput;
+			//printf("made it to right spot load\n");
+			break;
+		
+		// case(4): //lbu - 8 bits
+		// 	
+		// 	break;
+
+		// case(5): //lhu - 16 bits
+		// 	
+		// 	break;
+	}
+
+}
+
+void MEM_store(uint32_t instruction){
+	uint32_t funct3 = (instruction & 28672) >> 12;
+	
+
+	switch(funct3){
+		case(0): //sb - 8 bits
+			MEM_WB.ALUOutput = EX_MEM.B & 255;
+			break;
+
+		case(1): //sh - 16 bits
+			MEM_WB.ALUOutput = EX_MEM.B & 65535;
+			break;
+
+		case(2): //sw - 32 bits
+			MEM_WB.ALUOutput = EX_MEM.B;
+			//printf("made it to right spot store\n");
+			break;
+		
+	}
+}
+
+// TODO - deal with data hazards
 void MEM()
 {
-	/*IMPLEMENT THIS*/
+	uint32_t instruction = ID_EX.IR;
+	uint32_t opcode = instruction & 127;
+	printf("opcode is %d\n\n", opcode);
+	MEM_WB.IR = EX_MEM.IR;
+	MEM_WB.ALUOutput = EX_MEM.ALUOutput;
+
+	switch(opcode){
+		case(3): //load
+			MEM_load(instruction);
+		
+		case(35): //store
+			MEM_store(instruction);
+
+	}
 }
 
 /************************************************************/
 /* execution (EX) pipeline stage:                                                                          */
 /************************************************************/
+
+
+void EX_R_Processing(uint32_t instruction) {
+	uint32_t funct3 = (instruction & 28672) >> 12;
+	uint32_t funct7 = (instruction & 4261412864) >> 25;
+	switch(funct3){
+		case 0:
+			switch(funct7){
+				case 0:		//add
+					EX_MEM.ALUOutput = ID_EX.A + ID_EX.B;
+					break;
+				case 32:	//sub
+					EX_MEM.ALUOutput = ID_EX.A - ID_EX.B;
+					break;
+				default:
+					RUN_FLAG = FALSE;
+					break;
+				}	
+			break;
+		case 6: 			//or
+			EX_MEM.ALUOutput = ID_EX.A | ID_EX.B;
+			break;
+		case 7:				//and
+			EX_MEM.ALUOutput = ID_EX.A & ID_EX.B;
+			break;
+		case 4:		//xor
+			EX_MEM.ALUOutput = ID_EX.A ^ ID_EX.B;
+			break;
+		case 1: //sll
+			EX_MEM.ALUOutput = ID_EX.A << ID_EX.B;
+			break;
+		case 5: 
+			switch(funct7) {
+				case 0: //srl
+					EX_MEM.ALUOutput = ID_EX.A >> ID_EX.B;
+					break;
+				case 32: //sra
+					//TO BE DONE LATER
+					break;
+			}
+			break;
+		default:
+			RUN_FLAG = FALSE;
+			break;
+	}
+}
+void EX_Iimm_Processing(uint32_t instruction) {
+	uint32_t funct3 = (instruction & 28672) >> 12;
+	uint32_t imm5_11 = (instruction & 0xFE000000) >> 25;
+	switch (funct3)
+	{
+	case 0: //addi
+		EX_MEM.ALUOutput = ID_EX.A + ID_EX.imm;
+		break;
+
+	case 4: //xori
+		EX_MEM.ALUOutput = ID_EX.A ^ ID_EX.imm;
+		break;
+
+	case 6: //ori
+		EX_MEM.ALUOutput = ID_EX.A | ID_EX.imm;
+		break;
+
+	case 7: //andi
+		EX_MEM.ALUOutput = ID_EX.A & ID_EX.imm;
+		break;
+
+	case 1: //slli
+		EX_MEM.ALUOutput = ID_EX.A << ID_EX.imm;
+		break;
+
+	case 5: //srli and srai
+		switch (imm5_11)
+		{
+		case 0: //srli
+			EX_MEM.ALUOutput = ID_EX.A >> ID_EX.imm;
+			break;
+
+		case 32: //srai
+			//EX_MEM.ALUOutput = ID_EX.A >> ID_EX.imm;
+			break;
+
+		default:
+			RUN_FLAG = FALSE;
+			break;
+		}
+		break;
+
+	case 2:
+	//To be implemented
+		break;
+
+	case 3:
+		break;
+
+	default:
+		printf("Invalid instruction");
+		RUN_FLAG = FALSE;
+		break;
+	}
+}
+
 void EX()
 {
-	/*IMPLEMENT THIS*/
+	uint32_t instruction = ID_EX.IR;
+	EX_MEM.IR = ID_EX.IR;
+	uint32_t opcode = instruction & 127;
+	//Memory reference
+	if(opcode == 3 || opcode == 35) {
+		EX_MEM.ALUOutput = ID_EX.A + ID_EX.imm;
+		EX_MEM.B = ID_EX.B;
+	}
+	//register-immediate
+	else if(opcode == 19) {
+		EX_Iimm_Processing(instruction);
+	}
+	//register-register
+	else if(opcode == 51) {
+		EX_R_Processing(instruction);
+	}
 }
 
 /************************************************************/
@@ -349,7 +530,66 @@ void EX()
 /************************************************************/
 void ID()
 {
-	/*IMPLEMENT THIS*/
+	uint32_t instruction = IF_ID.IR;
+	ID_EX.IR = IF_ID.IR;
+	uint32_t rs1 = 0;
+	uint32_t rs2 = 0;
+	uint32_t imm = 0;
+	uint32_t imm2 = 0;
+	//127 in base-10 is = 1111111 in base 2, which will allow us to extract the opcode from the instruction
+	printf("Instruction is %x\n",ID_EX.IR);
+	uint32_t opcode = instruction & 127;
+	printf("Opcode is %d\n",opcode);
+	switch(opcode) {
+		//R-type instructions
+		case(51):
+			rs1 = (instruction & 1015808) >> 15;
+			rs2 = (instruction & 32505856) >> 20;
+			ID_EX.A = CURRENT_STATE.REGS[rs1];
+			ID_EX.B = CURRENT_STATE.REGS[rs2];
+			break;
+		//I-type Instructions
+		case(19):
+			rs1 = (instruction & 1015808) >> 15;
+			imm = (instruction & 4293918720) >> 20;
+			//If this bit is a 1, it is a negative number, so we extend the sign bit all the way over.
+			if((imm & 4096) == 4096) {
+				imm |= 0xFFFFE000;
+			}
+			ID_EX.A = CURRENT_STATE.REGS[rs1];
+			ID_EX.imm = imm;
+			break;
+		//I-type load instructions
+		case(3):
+			rs1 = (instruction & 1015808) >> 15;
+			imm = (instruction & 4293918720) >> 20;
+			//If this bit is a 1, it is a negative number, so we extend the sign bit all the way over.
+			if((imm & 4096) == 4096) {
+				imm |= 0xFFFFE000;
+			}
+			ID_EX.A = CURRENT_STATE.REGS[rs1];
+			ID_EX.imm = imm;
+			break;
+		//S-type instructions
+		case(35):
+			imm2 = (instruction & 3968) >> 7;
+			rs1 = (instruction & 1015808) >> 15;
+			rs2 = (instruction & 32505856) >> 20;
+			imm = (instruction & 4261412864) >> 25;
+			// Recombine immediate
+			uint32_t combinedimm = (imm << 5) + imm2;
+			//If this bit is a 1, it is a negative number, so we extend the sign bit all the way over.
+			if((combinedimm & 4096) == 4096) {
+				combinedimm |= 0xFFFFE000;
+			}
+			ID_EX.A = CURRENT_STATE.REGS[rs1];
+			ID_EX.B = CURRENT_STATE.REGS[rs2];
+			ID_EX.imm = combinedimm;
+			break;
+		default:
+			//printf("OPCODE NOT FOUND!\n\n");
+			break;
+	}
 }
 
 /************************************************************/
@@ -357,9 +597,12 @@ void ID()
 /************************************************************/
 void IF()
 {
-	/*IMPLEMENT THIS*/
+	uint32_t instruction = mem_read_32(CURRENT_STATE.PC);
+	IF_ID.IR = instruction;
+	IF_ID.PC = CURRENT_STATE.PC;
+	printf("CURRENT IF_ID IR is %x\n\n\n",IF_ID.IR);
+	NEXT_STATE.PC += 4; 
 }
-
 
 /************************************************************/
 /* Initialize Memory                                                                                                    */
@@ -382,7 +625,23 @@ void print_program(){
 /* Print the current pipeline                                                                                    */
 /************************************************************/
 void show_pipeline(){
-	/*IMPLEMENT THIS*/
+	printf("Current PC:\t0x%x\n",CURRENT_STATE.PC);
+	printf("IF/ID.IR\t0x%x\n",IF_ID.IR);
+	printf("IF/ID.PC\t0x%x\n\n",IF_ID.PC);
+
+	printf("ID/EX.IR\t0x%x\n",ID_EX.IR);
+	printf("ID/EX.A\t\t%d\n",ID_EX.A);
+	printf("ID/EX.B\t\t%d\n",ID_EX.B);
+	printf("ID/EX.imm\t%d\n\n",ID_EX.imm);
+
+	printf("EX/MEM.IR\t0x%x\n",EX_MEM.IR);
+	printf("EX/MEM.A\t%d\n",EX_MEM.A);
+	printf("EX/MEM.B\t%d\n",EX_MEM.B);
+	printf("EX/MEM.ALUOutput\t%d\n\n",EX_MEM.ALUOutput);
+
+	printf("MEM/WB.IR\t0x%x\n",MEM_WB.IR);
+	printf("MEM/WB.ALUOutput\t%d\n",MEM_WB.ALUOutput);
+	printf("MEM/WB.LMD\t%d\n\n",MEM_WB.LMD);
 }
 
 /***************************************************************/
