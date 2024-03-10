@@ -318,6 +318,11 @@ void handle_pipeline()
 	EX();
 	ID();
 	IF();
+	//To stop execution when no syscalls are in the program. We assume the program has finished excution when the pipeline registers are completely flushed.
+	if(IF_ID.IR == 0 && MEM_WB.IR == 0 && ID_EX.IR == 0 && EX_MEM.IR == 0) {
+		printf("All pipeline registers empty, program execution complete!\n");
+		RUN_FLAG = FALSE;
+	}
 }
 
 /************************************************************/
@@ -325,27 +330,27 @@ void handle_pipeline()
 /************************************************************/
 
 void WB(){
+	//extract current instruction from pipeline reg.
 	uint32_t instruction = MEM_WB.IR;
 	uint32_t opcode = instruction & 127;
 	uint32_t rd = (instruction & 4095) >> 7;
-	//printf("rd is %d\n\n", rd);
 	if(instruction){
 		switch(opcode){
 			case(3): //load
-				CURRENT_STATE.REGS[rd + 1] = MEM_WB.LMD;
-				//printf("current_state.regs[rd] is %d\n\n", CURRENT_STATE.REGS[rd]);
+				//write back result to both current and next, as the results might be used earlier in the pipeline as well
+				NEXT_STATE.REGS[rd] = MEM_WB.LMD;
+				CURRENT_STATE.REGS[rd] = MEM_WB.LMD;
 				break;
-			
 			case(19): //register-immediate
-				CURRENT_STATE.REGS[rd + 1] = MEM_WB.ALUOutput;
-				//printf("current_state.regs[rd] is %d\n\n", CURRENT_STATE.REGS[rd]);
+				NEXT_STATE.REGS[rd] = MEM_WB.ALUOutput;
+				CURRENT_STATE.REGS[rd] = MEM_WB.ALUOutput;
 				break;
-			
 			case(51): //register-register
-				CURRENT_STATE.REGS[rd + 1] = MEM_WB.ALUOutput;
-				//printf("current_state.regs[rd] is %d\n\n", CURRENT_STATE.REGS[rd]);
+				NEXT_STATE.REGS[rd] = MEM_WB.ALUOutput;
+				CURRENT_STATE.REGS[rd] = MEM_WB.ALUOutput;
 				break;
 		}
+		//increment instruction count
 		INSTRUCTION_COUNT++;
 	}
 }
@@ -356,28 +361,28 @@ void WB(){
 
 void MEM_load(uint32_t instruction){
 	uint32_t funct3 = (instruction & 28672) >> 12;
-	
+	//need to pull out funct3 so we know if it is a lb, lh, or lw
 	switch(funct3){
 		case(0): //lb - 8 bits
-			MEM_WB.LMD = MEM_WB.ALUOutput & 255;
+			//read from memory based on address calculated, only pull out first byte.
+			MEM_WB.LMD = mem_read_32(MEM_WB.ALUOutput) & 255;
 			break;
 
 		case(1): //lh - 16 bits
-			MEM_WB.LMD = MEM_WB.ALUOutput & 65535;
+			MEM_WB.LMD = mem_read_32(MEM_WB.ALUOutput) & 65535;
 			break;
 
 		case(2): //lw - 32 bits
-			MEM_WB.LMD = MEM_WB.ALUOutput;
-			//printf("made it to right spot load\n");
+			MEM_WB.LMD = mem_read_32(MEM_WB.ALUOutput);
 			break;
 		
-		// case(4): //lbu - 8 bits
-		// 	
-		// 	break;
+		case(4): //lbu - 8 bits
+			MEM_WB.LMD = mem_read_32(MEM_WB.ALUOutput) & 255;
+			break;
 
-		// case(5): //lhu - 16 bits
-		// 	
-		// 	break;
+		case(5): //lhu - 16 bits
+			MEM_WB.LMD = mem_read_32(MEM_WB.ALUOutput) & 65535;
+			break;
 	}
 }
 
@@ -386,14 +391,14 @@ void MEM_store(uint32_t instruction){
 
 	switch(funct3){
 		case(0): //sb - 8 bits
-			MEM_WB.ALUOutput = MEM_WB.B & 255;
+			//write data stored in Temp B into the address calculated .
+			mem_write_32(EX_MEM.ALUOutput, EX_MEM.B & 255);
 			break;
 		case(1): //sh - 16 bits
-			MEM_WB.ALUOutput = MEM_WB.B & 65535;
+			mem_write_32(EX_MEM.ALUOutput, EX_MEM.B & 65535);
 			break;
 		case(2): //sw - 32 bits
-			MEM_WB.ALUOutput = MEM_WB.B;
-			//printf("made it to right spot store\n");
+			mem_write_32(EX_MEM.ALUOutput, EX_MEM.B);
 			break;
 		
 	}
@@ -402,15 +407,17 @@ void MEM_store(uint32_t instruction){
 void MEM(){
 	uint32_t instruction = ID_EX.IR;
 	uint32_t opcode = instruction & 127;
-	//printf("opcode is %d\n\n", opcode);
+	//Update pipeline regs.
 	MEM_WB.IR = EX_MEM.IR;
 	MEM_WB.ALUOutput = EX_MEM.ALUOutput;
 	MEM_WB.B = EX_MEM.B;
 	switch(opcode){
 		case(3): //load
 			MEM_load(instruction);
+			break;
 		case(35): //store
 			MEM_store(instruction);
+			break;
 	}
 }
 
@@ -418,7 +425,7 @@ void MEM(){
 /* execution (EX) pipeline stage:                                                                          */
 /************************************************************/
 
-
+//Processing any R instructions in execution stage.
 void EX_R_Processing(uint32_t instruction) {
 	uint32_t funct3 = (instruction & 28672) >> 12;
 	uint32_t funct7 = (instruction & 4261412864) >> 25;
@@ -426,6 +433,7 @@ void EX_R_Processing(uint32_t instruction) {
 		case 0:
 			switch(funct7){
 				case 0:		//add
+				//for each operation, store in ALU Output pipeline reg. and do the given operation.
 					EX_MEM.ALUOutput = ID_EX.A + ID_EX.B;
 					break;
 				case 32:	//sub
@@ -454,7 +462,7 @@ void EX_R_Processing(uint32_t instruction) {
 					EX_MEM.ALUOutput = ID_EX.A >> ID_EX.B;
 					break;
 				case 32: //sra
-					//TO BE DONE LATER
+					EX_MEM.ALUOutput = ID_EX.A >> ID_EX.B;
 					break;
 			}
 			break;
@@ -469,6 +477,7 @@ void EX_Iimm_Processing(uint32_t instruction) {
 	switch (funct3)
 	{
 	case 0: //addi
+	//Combine reg. A with Imm when processing I-Imm.
 		EX_MEM.ALUOutput = ID_EX.A + ID_EX.imm;
 		break;
 
@@ -496,7 +505,7 @@ void EX_Iimm_Processing(uint32_t instruction) {
 			break;
 
 		case 32: //srai
-			//EX_MEM.ALUOutput = ID_EX.A >> ID_EX.imm;
+			EX_MEM.ALUOutput = ID_EX.A >> ID_EX.imm;
 			break;
 
 		default:
@@ -504,14 +513,6 @@ void EX_Iimm_Processing(uint32_t instruction) {
 			break;
 		}
 		break;
-
-	case 2:
-	//To be implemented
-		break;
-
-	case 3:
-		break;
-
 	default:
 		printf("Invalid instruction");
 		RUN_FLAG = FALSE;
@@ -521,15 +522,16 @@ void EX_Iimm_Processing(uint32_t instruction) {
 
 void EX()
 {
+	//Set appropriate registers
 	uint32_t instruction = ID_EX.IR;
 	EX_MEM.IR = ID_EX.IR;
 	uint32_t opcode = instruction & 127;
-	//Memory reference
+	//Memory reference, so calculate address jump and store in ALU output
 	if(opcode == 3 || opcode == 35) {
 		EX_MEM.ALUOutput = ID_EX.A + ID_EX.imm;
 		EX_MEM.B = ID_EX.B;
 	}
-	//register-immediate
+	//register-immediate, so go to functions above.
 	else if(opcode == 19) {
 		EX_Iimm_Processing(instruction);
 	}
@@ -545,18 +547,18 @@ void EX()
 void ID()
 {
 	uint32_t instruction = IF_ID.IR;
+	//Update next stage pipeline reg.
 	ID_EX.IR = IF_ID.IR;
 	uint32_t rs1 = 0;
 	uint32_t rs2 = 0;
 	uint32_t imm = 0;
 	uint32_t imm2 = 0;
 	//127 in base-10 is = 1111111 in base 2, which will allow us to extract the opcode from the instruction
-	printf("Instruction is %x\n",ID_EX.IR);
 	uint32_t opcode = instruction & 127;
-	printf("Opcode is %d\n",opcode);
 	switch(opcode) {
 		//R-type instructions
 		case(51):
+		//Pull out rs1 & rs2, update pipeline regs w/ it.
 			rs1 = (instruction & 1015808) >> 15;
 			rs2 = (instruction & 32505856) >> 20;
 			ID_EX.A = CURRENT_STATE.REGS[rs1];
@@ -601,7 +603,6 @@ void ID()
 			ID_EX.imm = combinedimm;
 			break;
 		default:
-			//printf("OPCODE NOT FOUND!\n\n");
 			break;
 	}
 }
@@ -611,10 +612,11 @@ void ID()
 /************************************************************/
 void IF()
 {
+	//Read in instruction based on PC
 	uint32_t instruction = mem_read_32(CURRENT_STATE.PC);
+	//Update Pipeline regs. & PC
 	IF_ID.IR = instruction;
 	IF_ID.PC = CURRENT_STATE.PC;
-	printf("CURRENT IF_ID IR is %x\n\n\n",IF_ID.IR);
 	NEXT_STATE.PC += 4; 
 }
 
@@ -632,6 +634,7 @@ void initialize() {
 /* Print the program loaded into memory (in RISCV assembly format)    */
 /************************************************************/
 void print_program(){
+	//implementation taken from lab 1.
 	CURRENT_STATE.PC = MEM_TEXT_BEGIN;
 	NEXT_STATE.PC = MEM_TEXT_BEGIN + 4;
 	
@@ -876,7 +879,7 @@ void print_instruction(uint32_t addr){
 		printf("ecall\n\n");
 		RUN_FLAG = FALSE;
 	} else{
-		printf("instruction print not yet created\n");
+		printf("Instruction not found or at EOF!\n");
 		RUN_FLAG = FALSE;
 	}
 	CURRENT_STATE = NEXT_STATE;
@@ -886,6 +889,7 @@ void print_instruction(uint32_t addr){
 /* Print the current pipeline                                                                                    */
 /************************************************************/
 void show_pipeline(){
+	//printing out current pipeline
 	printf("Current PC:\t0x%x\n",CURRENT_STATE.PC);
 	printf("IF/ID.IR\t0x%x\n",IF_ID.IR);
 	printf("IF/ID.PC\t0x%x\n\n",IF_ID.PC);
