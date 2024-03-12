@@ -38,6 +38,8 @@ mem_region_t MEM_REGIONS[] = {
 #define NUM_MEM_REGION 4
 #define RISCV_REGS 32
 
+uint32_t ENABLE_FORWARDING = FALSE;
+
 typedef struct CPU_State_Struct {
 
   uint32_t PC;		                   /* program counter */
