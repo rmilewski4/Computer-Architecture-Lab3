@@ -552,6 +552,9 @@ void EX()
 /************************************************************/
 /* instruction decode (ID) pipeline stage:                                                         */
 /************************************************************/
+void detect_hazard(uint32_t reg) {
+	
+}
 void ID()
 {
 	uint32_t instruction = IF_ID.IR;
@@ -569,6 +572,7 @@ void ID()
 		//Pull out rs1 & rs2, update pipeline regs w/ it.
 			rs1 = (instruction & 1015808) >> 15;
 			rs2 = (instruction & 32505856) >> 20;
+			//detect hazard here
 			ID_EX.A = CURRENT_STATE.REGS[rs1];
 			ID_EX.B = CURRENT_STATE.REGS[rs2];
 			break;
