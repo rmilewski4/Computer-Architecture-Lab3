@@ -413,7 +413,7 @@ void MEM_store(uint32_t instruction){
 }
 
 void MEM(){
-	uint32_t instruction = ID_EX.IR;
+	uint32_t instruction = EX_MEM.IR;
 	uint32_t opcode = instruction & 127;
 	//Update pipeline regs.
 	MEM_WB.RegWrite = EX_MEM.RegWrite;
@@ -558,11 +558,14 @@ void detect_hazard(uint32_t rs, uint32_t rt) {
 	uint32_t EX_MEM_RD = (EX_MEM.IR  & 4095) >> 7;
 	uint32_t MEM_WB_RD = (MEM_WB.IR  & 4095) >> 7;
 	printf("MEM_WB.RegWrite = %d\nEX_MEM_RD = %d\nrs = %d\nrd = %d\n\n",MEM_WB.RegWrite,EX_MEM_RD,rs, rt);
+	ID_EX.forwardA = 0;
+	ID_EX.forwardB = 0;
 	if(MEM_WB.RegWrite && EX_MEM_RD != 0 && (EX_MEM_RD == rs)) {
 		//hazard forwardA = 10
 		printf("hazard forwardA = 10\n");
 		if(ENABLE_FORWARDING == TRUE) {
-			IF_ID.A = EX_MEM.ALUOutput;
+			ID_EX.A = EX_MEM.ALUOutput;
+			ID_EX.forwardA = 10;
 		}
 		else {
 
@@ -574,32 +577,43 @@ void detect_hazard(uint32_t rs, uint32_t rt) {
 			//hazard forwardB = 10
 			printf("hazard forwardb =10\n");
 			if(ENABLE_FORWARDING == TRUE) {
-				IF_ID.B = EX_MEM.ALUOutput;
+				ID_EX.B = EX_MEM.ALUOutput;
+				ID_EX.forwardB = 10;
 			}
 			else {
 
 			}
 		}
 	}
-	if(MEM_WB.RegWrite && MEM_WB_RD != 0 && (MEM_WB_RD == rs)) {
-	//if(MEM_WB.RegWrite && MEM_WB_RD != 0 && !(EX_MEM.RegWrite && EX_MEM_RD != 0) && (EX_MEM_RD == rs)) {
+	uint32_t instopcode = EX_MEM.IR & 127;
+	if(MEM_WB.RegWrite && MEM_WB_RD != 0 && !(EX_MEM.RegWrite && (EX_MEM_RD != 0) && (EX_MEM_RD == rs)) && (MEM_WB_RD == rs)) {
 		//hazard forwarda = 01
 		printf("hazard forwarda = 01\n");
 		if(ENABLE_FORWARDING == TRUE) {
-			IF_ID.A = MEM_WB.ALUOutput;
+			if(instopcode == 3) {
+				ID_EX.A = MEM_WB.LMD;
+			}
+			else {
+				ID_EX.A = MEM_WB.ALUOutput;
+			}
+			ID_EX.forwardA = 01;
 		}
 		else {
 			
 		}
 	}
 	if(rt != 0) {
-		if(MEM_WB.RegWrite && MEM_WB_RD != 0 && (MEM_WB_RD == rt)) {
-		//if(MEM_WB.RegWrite && MEM_WB_RD != 0 && !(EX_MEM.RegWrite && EX_MEM_RD != 0) && (EX_MEM_RD == rt)) {
+		if(MEM_WB.RegWrite && MEM_WB_RD != 0 && !(EX_MEM.RegWrite && (EX_MEM_RD != 0) && (EX_MEM_RD == rt)) && (MEM_WB_RD == rt)) {
 			//hazard forwardB = 01
 			printf("hazard forwardb = 01\n");
 			if(ENABLE_FORWARDING == TRUE) {
-				//below won't work. Need to add an element to the struct to indicate forward for next stage (i.e. Ex should use this value instead.)
-				IF_ID.B = MEM_WB.ALUOutput;
+				if(instopcode == 3) {
+					ID_EX.B = MEM_WB.LMD;
+				}
+				else {
+					ID_EX.B = MEM_WB.ALUOutput;
+				}
+				ID_EX.forwardB = 01;
 			}
 			else {
 

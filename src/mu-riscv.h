@@ -56,6 +56,8 @@ typedef struct CPU_Pipeline_Reg_Struct{
 	uint32_t ALUOutput;
 	uint32_t LMD;
 	uint32_t RegWrite;
+	uint32_t forwardA;
+	uint32_t forwardB;
 	
 } CPU_Pipeline_Reg;
 
