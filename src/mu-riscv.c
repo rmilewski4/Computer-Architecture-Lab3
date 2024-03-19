@@ -416,6 +416,7 @@ void MEM(){
 	uint32_t instruction = ID_EX.IR;
 	uint32_t opcode = instruction & 127;
 	//Update pipeline regs.
+	MEM_WB.RegWrite = EX_MEM.RegWrite;
 	MEM_WB.IR = EX_MEM.IR;
 	MEM_WB.ALUOutput = EX_MEM.ALUOutput;
 	MEM_WB.B = EX_MEM.B;
@@ -533,6 +534,7 @@ void EX()
 	//Set appropriate registers
 	uint32_t instruction = ID_EX.IR;
 	EX_MEM.IR = ID_EX.IR;
+	EX_MEM.RegWrite = ID_EX.RegWrite;
 	uint32_t opcode = instruction & 127;
 	//Memory reference, so calculate address jump and store in ALU output
 	if(opcode == 3 || opcode == 35) {
@@ -552,8 +554,58 @@ void EX()
 /************************************************************/
 /* instruction decode (ID) pipeline stage:                                                         */
 /************************************************************/
-void detect_hazard(uint32_t reg) {
-	
+void detect_hazard(uint32_t rs, uint32_t rt) {
+	uint32_t EX_MEM_RD = (EX_MEM.IR  & 4095) >> 7;
+	uint32_t MEM_WB_RD = (MEM_WB.IR  & 4095) >> 7;
+	printf("MEM_WB.RegWrite = %d\nEX_MEM_RD = %d\nrs = %d\nrd = %d\n\n",MEM_WB.RegWrite,EX_MEM_RD,rs, rt);
+	if(MEM_WB.RegWrite && EX_MEM_RD != 0 && (EX_MEM_RD == rs)) {
+		//hazard forwardA = 10
+		printf("hazard forwardA = 10\n");
+		if(ENABLE_FORWARDING == TRUE) {
+			IF_ID.A = EX_MEM.ALUOutput;
+		}
+		else {
+
+		}
+	}
+	//Taking into account if we use an immediate instruction, which passes 0 into rt, so we don't want to check for a hazard if the register is not in use.
+	if(rt != 0) {
+		if(MEM_WB.RegWrite && EX_MEM_RD != 0 && (EX_MEM_RD == rt)) {
+			//hazard forwardB = 10
+			printf("hazard forwardb =10\n");
+			if(ENABLE_FORWARDING == TRUE) {
+				IF_ID.B = EX_MEM.ALUOutput;
+			}
+			else {
+
+			}
+		}
+	}
+	if(MEM_WB.RegWrite && MEM_WB_RD != 0 && (MEM_WB_RD == rs)) {
+	//if(MEM_WB.RegWrite && MEM_WB_RD != 0 && !(EX_MEM.RegWrite && EX_MEM_RD != 0) && (EX_MEM_RD == rs)) {
+		//hazard forwarda = 01
+		printf("hazard forwarda = 01\n");
+		if(ENABLE_FORWARDING == TRUE) {
+			IF_ID.A = MEM_WB.ALUOutput;
+		}
+		else {
+			
+		}
+	}
+	if(rt != 0) {
+		if(MEM_WB.RegWrite && MEM_WB_RD != 0 && (MEM_WB_RD == rt)) {
+		//if(MEM_WB.RegWrite && MEM_WB_RD != 0 && !(EX_MEM.RegWrite && EX_MEM_RD != 0) && (EX_MEM_RD == rt)) {
+			//hazard forwardB = 01
+			printf("hazard forwardb = 01\n");
+			if(ENABLE_FORWARDING == TRUE) {
+				//below won't work. Need to add an element to the struct to indicate forward for next stage (i.e. Ex should use this value instead.)
+				IF_ID.B = MEM_WB.ALUOutput;
+			}
+			else {
+
+			}
+		}
+	}
 }
 void ID()
 {
@@ -575,6 +627,8 @@ void ID()
 			//detect hazard here
 			ID_EX.A = CURRENT_STATE.REGS[rs1];
 			ID_EX.B = CURRENT_STATE.REGS[rs2];
+			ID_EX.RegWrite = TRUE;
+			detect_hazard(rs1,rs2);
 			break;
 		//I-type Instructions
 		case(19):
@@ -586,6 +640,8 @@ void ID()
 			}
 			ID_EX.A = CURRENT_STATE.REGS[rs1];
 			ID_EX.imm = imm;
+			ID_EX.RegWrite = TRUE;
+			detect_hazard(rs1,0);
 			break;
 		//I-type load instructions
 		case(3):
@@ -597,6 +653,8 @@ void ID()
 			}
 			ID_EX.A = CURRENT_STATE.REGS[rs1];
 			ID_EX.imm = imm;
+			ID_EX.RegWrite = TRUE;
+			detect_hazard(rs1,0);
 			break;
 		//S-type instructions
 		case(35):
@@ -613,6 +671,8 @@ void ID()
 			ID_EX.A = CURRENT_STATE.REGS[rs1];
 			ID_EX.B = CURRENT_STATE.REGS[rs2];
 			ID_EX.imm = combinedimm;
+			ID_EX.RegWrite = TRUE;
+			detect_hazard(rs1,rs2);
 			break;
 		default:
 			break;
