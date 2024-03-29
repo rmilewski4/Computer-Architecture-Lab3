@@ -555,57 +555,53 @@ void EX()
 /* instruction decode (ID) pipeline stage:                                                         */
 /************************************************************/
 void detect_hazard(uint32_t rs, uint32_t rt) {
+	//figure out destination register for the two stages where a hazard could be
 	uint32_t EX_MEM_RD = (EX_MEM.IR  & 4095) >> 7;
 	uint32_t MEM_WB_RD = (MEM_WB.IR  & 4095) >> 7;
-	printf("MEM_WB.RegWrite = %d\nEX_MEM_RD = %d\nrs = %d\nrd = %d\n\n",MEM_WB.RegWrite,EX_MEM_RD,rs, rt);
-	ID_EX.forwardA = 0;
-	ID_EX.forwardB = 0;
 	if(MEM_WB.RegWrite && EX_MEM_RD != 0 && (EX_MEM_RD == rs)) {
 		//hazard forwardA = 10
-		printf("hazard forwardA = 10\n");
 		if(ENABLE_FORWARDING == TRUE) {
+			//If we are forwarding, we directly get the ouput from that pipeline register and set it to our ID_EX pipeline reg.
 			ID_EX.A = EX_MEM.ALUOutput;
-			ID_EX.forwardA = 10;
 		}
 		else {
-
+			//Otherwise, since this insturction that is a hazard is in the EX_MEM stage, we need to do two nops (which since this is decremented later before a nop is done, is set to 3 to start.).
+			IF_ID.StallCount = 3;
 		}
 	}
 	//Taking into account if we use an immediate instruction, which passes 0 into rt, so we don't want to check for a hazard if the register is not in use.
 	if(rt != 0) {
 		if(MEM_WB.RegWrite && EX_MEM_RD != 0 && (EX_MEM_RD == rt)) {
 			//hazard forwardB = 10
-			printf("hazard forwardb =10\n");
 			if(ENABLE_FORWARDING == TRUE) {
 				ID_EX.B = EX_MEM.ALUOutput;
-				ID_EX.forwardB = 10;
 			}
 			else {
-
+				IF_ID.StallCount = 3;
 			}
 		}
 	}
 	uint32_t instopcode = EX_MEM.IR & 127;
+	//Catching double hazards with this if statement
 	if(MEM_WB.RegWrite && MEM_WB_RD != 0 && !(EX_MEM.RegWrite && (EX_MEM_RD != 0) && (EX_MEM_RD == rs)) && (MEM_WB_RD == rs)) {
 		//hazard forwarda = 01
-		printf("hazard forwarda = 01\n");
 		if(ENABLE_FORWARDING == TRUE) {
 			if(instopcode == 3) {
+				//If the instruction opcode is for a load, the thing that needs to be forwarded is in LMD, not ALU output, so we take that result
 				ID_EX.A = MEM_WB.LMD;
 			}
 			else {
 				ID_EX.A = MEM_WB.ALUOutput;
 			}
-			ID_EX.forwardA = 01;
 		}
 		else {
-			
+			//Since this hazard occurs in the MEM_WB phase, we only need one nop to continue (set to one more since this is decremented immediately later)
+			IF_ID.StallCount = 2;
 		}
 	}
 	if(rt != 0) {
 		if(MEM_WB.RegWrite && MEM_WB_RD != 0 && !(EX_MEM.RegWrite && (EX_MEM_RD != 0) && (EX_MEM_RD == rt)) && (MEM_WB_RD == rt)) {
 			//hazard forwardB = 01
-			printf("hazard forwardb = 01\n");
 			if(ENABLE_FORWARDING == TRUE) {
 				if(instopcode == 3) {
 					ID_EX.B = MEM_WB.LMD;
@@ -613,10 +609,9 @@ void detect_hazard(uint32_t rs, uint32_t rt) {
 				else {
 					ID_EX.B = MEM_WB.ALUOutput;
 				}
-				ID_EX.forwardB = 01;
 			}
 			else {
-
+				IF_ID.StallCount = 2;
 			}
 		}
 	}
@@ -642,6 +637,7 @@ void ID()
 			ID_EX.A = CURRENT_STATE.REGS[rs1];
 			ID_EX.B = CURRENT_STATE.REGS[rs2];
 			ID_EX.RegWrite = TRUE;
+			//look for hazards based on rs1 and rs2 reg numbers
 			detect_hazard(rs1,rs2);
 			break;
 		//I-type Instructions
@@ -655,6 +651,7 @@ void ID()
 			ID_EX.A = CURRENT_STATE.REGS[rs1];
 			ID_EX.imm = imm;
 			ID_EX.RegWrite = TRUE;
+			//Since we have no rs2, we pass a 0 in to let the function know that this is the case.
 			detect_hazard(rs1,0);
 			break;
 		//I-type load instructions
@@ -691,6 +688,17 @@ void ID()
 		default:
 			break;
 	}
+	//If a stall is detected, then we need to forward 0 control signals to the ID_EX pipeline reg. to simulate a nop
+	if(IF_ID.StallCount > 0) {
+		ID_EX.A = 0;
+		ID_EX.B = 0;
+		ID_EX.ALUOutput = 0;
+		ID_EX.PC = 0;
+		ID_EX.imm = 0;
+		ID_EX.IR = 0;
+		ID_EX.RegWrite = 0;
+		ID_EX.LMD = 0;
+	}
 }
 
 /************************************************************/
@@ -698,6 +706,12 @@ void ID()
 /************************************************************/
 void IF()
 {
+	//IF there's a stall that needs to be detected, we don't let the IF_ID registers update. We decrement the stall count by one to
+	//indicate a successful stall cycle.
+	if(IF_ID.StallCount > 0) {
+		IF_ID.StallCount--;
+		return;
+	}
 	//Read in instruction based on PC
 	uint32_t instruction = mem_read_32(CURRENT_STATE.PC);
 	//Update Pipeline regs. & PC
