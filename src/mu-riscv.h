@@ -55,6 +55,8 @@ typedef struct CPU_Pipeline_Reg_Struct{
 	uint32_t imm;
 	uint32_t ALUOutput;
 	uint32_t LMD;
+	uint32_t RegWrite;
+	uint32_t StallCount;
 	
 } CPU_Pipeline_Reg;
 
