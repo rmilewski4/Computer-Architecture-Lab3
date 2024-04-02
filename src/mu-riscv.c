@@ -478,6 +478,46 @@ void EX_R_Processing(uint32_t instruction) {
 		default:
 			RUN_FLAG = FALSE;
 			break;
+	//b-type
+	case(99):
+		switch(funct3) {
+			case 0: //beq
+				if(ID_EX.A == ID_EX.B){
+					
+				}
+			break;
+			case 1: //bne
+				if(ID_EX.A != ID_EX.B){
+					
+				}
+			break;
+			case 4: //blt
+				if(ID_EX.A < ID_EX.B){
+					
+
+				}
+			break;
+			case 5: //bgt
+				if(ID_EX.A >= ID_EX.B){
+					
+				}
+			break;
+			case 6: //bltu
+				if(ID_EX.A < ID_EX.B){
+					
+
+				}
+			break;
+			case 7: //bgtu
+				if(ID_EX.A >= ID_EX.B){
+					
+				}
+			break;
+			default:
+				printf("Invalid instruction");
+				RUN_FLAG = FALSE;
+			break;
+		}
 	}
 }
 void EX_Iimm_Processing(uint32_t instruction) {
@@ -685,6 +725,25 @@ void ID()
 			ID_EX.RegWrite = TRUE;
 			detect_hazard(rs1,rs2);
 			break;
+		//b-type
+		case(99):{
+			rs1 = (instruction & 1015808) >> 15;
+			rs2 = (instruction & 32505856) >> 20;
+			int32_t imm11 = (instruction & 128) >> 7;
+			int32_t imm4_1 = (instruction & 3840) >> 7;
+			int32_t imm10_5 = (instruction & 2113929216) >> 25;
+			int32_t imm12 = (instruction & 2147483648) >> 31;
+			//recombined immediate
+			imm = (imm12 << 12) | (imm11 << 11) | (imm10_5 << 5) | (imm4_1); //13 bits long
+			if(imm12 == 1){
+				imm = 0xFFFFE000 | imm;
+			}
+			ID_EX.imm = imm;
+			ID_EX.A = CURRENT_STATE.REGS[rs1];
+			ID_EX.B = CURRENT_STATE.REGS[rs2];
+			detect_hazard(rs1,rs2);
+			break;
+		}
 		default:
 			break;
 	}
