@@ -319,13 +319,13 @@ void load_program() {
 void handle_pipeline()
 {
 	/*INSTRUCTION_COUNT should be incremented when instruction is done*/
-	/*Since we do not have branch/jump instructions, INSTRUCTION_COUNT should be incremented in WB stage */
 
 	WB();
 	MEM();
 	EX();
 	ID();
-	IF();
+	IF();\
+		printf("instruction = 0x%x, NEXT_STATE.PC = 0x%x\n",IF_ID.IR,NEXT_STATE.PC);
 	//To stop execution when no syscalls are in the program. We assume the program has finished excution when the pipeline registers are completely flushed.
 	if(IF_ID.IR == 0 && MEM_WB.IR == 0 && ID_EX.IR == 0 && EX_MEM.IR == 0) {
 		printf("All pipeline registers empty, program execution complete!\n");
@@ -338,6 +338,11 @@ void handle_pipeline()
 /************************************************************/
 
 void WB(){
+	if(MEM_WB.RegWrite == FALSE) {
+		//increment instruction count
+		INSTRUCTION_COUNT++;
+		return;
+	}
 	//extract current instruction from pipeline reg.
 	uint32_t instruction = MEM_WB.IR;
 	uint32_t opcode = instruction & 127;
@@ -416,6 +421,7 @@ void MEM(){
 	uint32_t instruction = EX_MEM.IR;
 	uint32_t opcode = instruction & 127;
 	//Update pipeline regs.
+	MEM_WB.PC = EX_MEM.PC;
 	MEM_WB.RegWrite = EX_MEM.RegWrite;
 	MEM_WB.IR = EX_MEM.IR;
 	MEM_WB.ALUOutput = EX_MEM.ALUOutput;
@@ -480,38 +486,61 @@ void EX_R_Processing(uint32_t instruction) {
 			break;
 	//b-type
 	case(99):
+		//need to recombine imm
+		uint32_t imm4_1and11 = (instruction & 3968) >> 7;
+		uint32_t imm12and10_5 = (instruction & 4261412864) >> 25;
+		uint32_t bit11 = (imm4_1and11 & 1) << 11;
+		uint32_t bits4_1 = imm4_1and11 & 30;
+		uint32_t bit12 = (imm12and10_5 & 64) << 6;
+		uint32_t bits10_5 = (imm12and10_5 & 63) << 5;
+		int32_t immediate = bit11 | bits4_1 | bit12 | bits10_5;
+		//if true, number is negative, so fill bits 13-31 with 1s
+		if((immediate & 4096) >> 12 == 1) {
+			immediate |= 4294959104;
+		}
 		switch(funct3) {
 			case 0: //beq
 				if(ID_EX.A == ID_EX.B){
-					
+					IF_ID.jumpDetected = TRUE;
+					NEXT_STATE.PC = ID_EX.PC + immediate;
 				}
+				IF_ID.jumpStallCount = 1;
 			break;
 			case 1: //bne
 				if(ID_EX.A != ID_EX.B){
-					
+					IF_ID.jumpDetected = TRUE;
+					NEXT_STATE.PC = ID_EX.PC + immediate;
 				}
+				IF_ID.jumpStallCount = 1;
 			break;
 			case 4: //blt
 				if(ID_EX.A < ID_EX.B){
-					
+					IF_ID.jumpDetected = TRUE;
+					NEXT_STATE.PC = ID_EX.PC + immediate;
 
 				}
+				IF_ID.jumpStallCount = 1;
 			break;
 			case 5: //bgt
 				if(ID_EX.A >= ID_EX.B){
-					
+					IF_ID.jumpDetected = TRUE;
+					NEXT_STATE.PC = ID_EX.PC + immediate;
 				}
+				IF_ID.jumpStallCount = 1;
 			break;
 			case 6: //bltu
 				if(ID_EX.A < ID_EX.B){
-					
-
+					IF_ID.jumpDetected = TRUE;
+					NEXT_STATE.PC = ID_EX.PC + immediate;
 				}
+				IF_ID.jumpStallCount = 1;
 			break;
 			case 7: //bgtu
 				if(ID_EX.A >= ID_EX.B){
-					
+					IF_ID.jumpDetected = TRUE;
+					NEXT_STATE.PC = ID_EX.PC + immediate;
 				}
+				IF_ID.jumpStallCount = 1;
 			break;
 			default:
 				printf("Invalid instruction");
@@ -573,6 +602,7 @@ void EX()
 {
 	//Set appropriate registers
 	uint32_t instruction = ID_EX.IR;
+	EX_MEM.PC = ID_EX.PC;
 	EX_MEM.IR = ID_EX.IR;
 	EX_MEM.RegWrite = ID_EX.RegWrite;
 	uint32_t opcode = instruction & 127;
@@ -580,6 +610,22 @@ void EX()
 	if(opcode == 3 || opcode == 35) {
 		EX_MEM.ALUOutput = ID_EX.A + ID_EX.imm;
 		EX_MEM.B = ID_EX.B;
+	}
+	//jal
+	else if(opcode == 111) {
+		EX_MEM.ALUOutput = EX_MEM.PC + 4;
+		//update PC += imm, flush previous instruction.
+		NEXT_STATE.PC = ID_EX.PC + ID_EX.imm;
+		IF_ID.jumpStallCount = 1;
+		IF_ID.jumpDetected = TRUE;
+	}
+	//jalr
+	else if(opcode == 103) {
+		EX_MEM.ALUOutput = EX_MEM.PC + 4;
+		//update pc = rs1 + imm
+		NEXT_STATE.PC = ID_EX.A + ID_EX.imm;
+		IF_ID.jumpStallCount = 1;
+		IF_ID.jumpDetected = TRUE;
 	}
 	//register-immediate, so go to functions above.
 	else if(opcode == 19) {
@@ -658,9 +704,26 @@ void detect_hazard(uint32_t rs, uint32_t rt) {
 }
 void ID()
 {
+	if(IF_ID.jumpStallCount > 0 && IF_ID.jumpDetected == TRUE) {
+		//stall detected!
+		ID_EX.A = 0;
+		ID_EX.B = 0;
+		ID_EX.ALUOutput = 0;
+		ID_EX.PC = 0;
+		ID_EX.imm = 0;
+		ID_EX.IR = 0;
+		ID_EX.RegWrite = 0;
+		ID_EX.LMD = 0;
+		printf("Stall detected due to jump!\n");
+		return;
+	}
+	else if(IF_ID.jumpStallCount > 0) {
+		return;
+	}
 	uint32_t instruction = IF_ID.IR;
 	//Update next stage pipeline reg.
 	ID_EX.IR = IF_ID.IR;
+	ID_EX.PC = IF_ID.PC;
 	uint32_t rs1 = 0;
 	uint32_t rs2 = 0;
 	uint32_t imm = 0;
@@ -738,12 +801,40 @@ void ID()
 			if(imm12 == 1){
 				imm = 0xFFFFE000 | imm;
 			}
+			ID_EX.RegWrite = FALSE;
 			ID_EX.imm = imm;
 			ID_EX.A = CURRENT_STATE.REGS[rs1];
 			ID_EX.B = CURRENT_STATE.REGS[rs2];
 			detect_hazard(rs1,rs2);
 			break;
 		}
+		//j-type
+		case(111):
+			uint32_t fullimm = (instruction & 0xFFFFF000) >> 12;
+			uint32_t bit20 = (fullimm & 0x80000);
+			uint32_t bit10_1 = (fullimm & 0x7FE00) >> 9;
+			uint32_t bit11 = (fullimm & 0x100) << 4;
+			uint32_t bit19_12 = (fullimm & 0xFF) << 12;
+			ID_EX.imm = bit20 | bit10_1 | bit11 | bit19_12;
+			if((ID_EX.imm & 0x80000) == 0x80000) {
+				ID_EX.imm |= 0xFFF00000;
+			}
+			ID_EX.RegWrite = TRUE;
+			break;
+		//jalr
+		case(103):
+			rs1 = (instruction & 1015808) >> 15;
+			imm = (instruction & 4293918720) >> 20;
+			//If this bit is a 1, it is a negative number, so we extend the sign bit all the way over.
+			if((imm & 4096) == 4096) {
+				imm |= 0xFFFFE000;
+			}
+			ID_EX.A = CURRENT_STATE.REGS[rs1];
+			ID_EX.imm = imm;
+			ID_EX.RegWrite = TRUE;
+			//Since we have no rs2, we pass a 0 in to let the function know that this is the case.
+			detect_hazard(rs1,0);
+			break;
 		default:
 			break;
 	}
@@ -765,15 +856,19 @@ void ID()
 /************************************************************/
 void IF()
 {
+	if(IF_ID.jumpStallCount > 0) {
+		IF_ID.jumpStallCount--;
+		return;
+	}
 	//IF there's a stall that needs to be detected, we don't let the IF_ID registers update. We decrement the stall count by one to
 	//indicate a successful stall cycle.
 	if(IF_ID.StallCount > 0) {
 		IF_ID.StallCount--;
 		return;
 	}
+	uint32_t instruction;
 	//Read in instruction based on PC
-	uint32_t instruction = mem_read_32(CURRENT_STATE.PC);
-	//Update Pipeline regs. & PC
+	instruction = mem_read_32(CURRENT_STATE.PC);
 	IF_ID.IR = instruction;
 	IF_ID.PC = CURRENT_STATE.PC;
 	NEXT_STATE.PC += 4; 
@@ -1034,7 +1129,31 @@ void print_instruction(uint32_t addr){
 		}
 		B_Print(imm, funct3, rs1, rs2);
 
-	} else if (opcode==115) {
+	} 
+	else if(opcode == 111) {
+		uint32_t fullimm = (instruction & 0xFFFFF000) >> 12;
+		uint32_t bit20 = (fullimm & 0x80000);
+		uint32_t bit10_1 = (fullimm & 0x7FE00) >> 9;
+		uint32_t bit11 = (fullimm & 0x100) << 4;
+		uint32_t bit19_12 = (fullimm & 0xFF) << 12;
+		uint32_t convertedimm = bit20 | bit10_1 | bit11 | bit19_12;
+			if((convertedimm & 0x80000) == 0x80000) {
+				convertedimm |= 0xFFF00000;
+			}
+		uint32_t rd = (instruction & 3968) >> 7;
+		printf("jal x%d, %d\n\n",rd,convertedimm);
+	}
+	else if(opcode == 103) {
+		uint32_t rs1 = (instruction & 1015808) >> 15;
+		uint32_t rd = (instruction & 3968) >> 7;
+		uint32_t imm = (instruction & 4293918720) >> 20;
+		//If this bit is a 1, it is a negative number, so we extend the sign bit all the way over.
+		if((imm & 4096) == 4096) {
+			imm |= 0xFFFFE000;
+		}
+		printf("jalr x%d, x%d, %d\n\n", rd, rs1, imm);
+	}
+	else if (opcode==115) {
 		printf("ecall\n\n");
 		RUN_FLAG = FALSE;
 	} else{

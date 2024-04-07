@@ -57,6 +57,8 @@ typedef struct CPU_Pipeline_Reg_Struct{
 	uint32_t LMD;
 	uint32_t RegWrite;
 	uint32_t StallCount;
+	uint32_t jumpDetected;
+	uint32_t jumpStallCount;
 	
 } CPU_Pipeline_Reg;
 
