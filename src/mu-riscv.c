@@ -722,21 +722,9 @@ void detect_hazard(uint32_t rs, uint32_t rt) {
 	}
 }
 void ID()
-{
-/*
-	if(IF_ID.jumpStallCount > 0 && IF_ID.jumpDetected == TRUE) {
-		//stall detected!
-		ID_EX.A = 0;
-		ID_EX.B = 0;
-		ID_EX.ALUOutput = 0;
-		ID_EX.PC = 0;
-		ID_EX.imm = 0;
-		ID_EX.IR = 0;
-		ID_EX.RegWrite = 0;
-		ID_EX.LMD = 0;
-		return;
-	}
-	else*/ if(IF_ID.jumpStallCount > 0 || IF_ID.jumpDetected == TRUE) {
+{	
+	//This covers stalls/flushes. If either conditions are true, this stage will be skipped/stalled.
+	if(IF_ID.jumpStallCount > 0 || IF_ID.jumpDetected == TRUE) {
 		return;
 	}
 	uint32_t instruction = IF_ID.IR;
@@ -875,18 +863,19 @@ void ID()
 /************************************************************/
 void IF()
 {
+	//catching stalls for jump related instructions in similar way as hazard stalls
 	if(IF_ID.jumpStallCount > 0) {
 		IF_ID.jumpStallCount--;
 		return;
+	}
+	else if(IF_ID.jumpStallCount == 0 && IF_ID.jumpDetected == TRUE) {
+		IF_ID.jumpDetected = FALSE;
 	}
 	//IF there's a stall that needs to be detected, we don't let the IF_ID registers update. We decrement the stall count by one to
 	//indicate a successful stall cycle.
 	if(IF_ID.StallCount > 0) {
 		IF_ID.StallCount--;
 		return;
-	}
-	else if(IF_ID.StallCount == 0 && IF_ID.jumpDetected == TRUE) {
-		IF_ID.jumpDetected = FALSE;
 	}
 	uint32_t instruction;
 	//Read in instruction based on PC
