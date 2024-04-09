@@ -325,7 +325,6 @@ void handle_pipeline()
 	EX();
 	ID();
 	IF();\
-		printf("instruction = 0x%x, NEXT_STATE.PC = 0x%x\n",IF_ID.IR,NEXT_STATE.PC);
 	//To stop execution when no syscalls are in the program. We assume the program has finished excution when the pipeline registers are completely flushed.
 	if(IF_ID.IR == 0 && MEM_WB.IR == 0 && ID_EX.IR == 0 && EX_MEM.IR == 0) {
 		printf("All pipeline registers empty, program execution complete!\n");
@@ -359,6 +358,8 @@ void WB(){
 				CURRENT_STATE.REGS[rd] = MEM_WB.ALUOutput;
 				break;
 			case(51): //register-register
+			case(103): //jal, jalr
+			case(111):
 				NEXT_STATE.REGS[rd] = MEM_WB.ALUOutput;
 				CURRENT_STATE.REGS[rd] = MEM_WB.ALUOutput;
 				break;
@@ -501,12 +502,15 @@ void EX_R_Processing(uint32_t instruction) {
 		switch(funct3) {
 			case 0: //beq
 				if(ID_EX.A == ID_EX.B){
+					//if these are the same, then jump will be done. Update the following cycle's PC with the new old PC + the data in immediate
 					IF_ID.jumpDetected = TRUE;
 					NEXT_STATE.PC = ID_EX.PC + immediate;
 				}
+				//Since we need to stall the following 2 instructions in every case for just 1 cycle, this will always be set to one, if the branch is taken or not
 				IF_ID.jumpStallCount = 1;
 			break;
 			case 1: //bne
+			//The following instructions are identical to beq besides the condition for comparing A & B
 				if(ID_EX.A != ID_EX.B){
 					IF_ID.jumpDetected = TRUE;
 					NEXT_STATE.PC = ID_EX.PC + immediate;
@@ -521,7 +525,7 @@ void EX_R_Processing(uint32_t instruction) {
 				}
 				IF_ID.jumpStallCount = 1;
 			break;
-			case 5: //bgt
+			case 5: //bge
 				if(ID_EX.A >= ID_EX.B){
 					IF_ID.jumpDetected = TRUE;
 					NEXT_STATE.PC = ID_EX.PC + immediate;
@@ -600,6 +604,18 @@ void EX_Iimm_Processing(uint32_t instruction) {
 
 void EX()
 {
+	//flushing previous instruction
+	if(IF_ID.jumpDetected == TRUE) {
+		//stall detected!
+		ID_EX.A = 0;
+		ID_EX.B = 0;
+		ID_EX.ALUOutput = 0;
+		ID_EX.PC = 0;
+		ID_EX.imm = 0;
+		ID_EX.IR = 0;
+		ID_EX.RegWrite = 0;
+		ID_EX.LMD = 0;
+	}
 	//Set appropriate registers
 	uint32_t instruction = ID_EX.IR;
 	EX_MEM.PC = ID_EX.PC;
@@ -613,16 +629,19 @@ void EX()
 	}
 	//jal
 	else if(opcode == 111) {
-		EX_MEM.ALUOutput = EX_MEM.PC + 4;
+		//Store old PC+4 in the WB register so program can return if needed
+		EX_MEM.ALUOutput = ID_EX.PC + 4;
 		//update PC += imm, flush previous instruction.
 		NEXT_STATE.PC = ID_EX.PC + ID_EX.imm;
+		//since this is a jump, the jump will always occur, so we tell the later instructions that a jump was detected so they know to stall/not proceed.
 		IF_ID.jumpStallCount = 1;
 		IF_ID.jumpDetected = TRUE;
 	}
 	//jalr
 	else if(opcode == 103) {
-		EX_MEM.ALUOutput = EX_MEM.PC + 4;
-		//update pc = rs1 + imm
+		//store old PC+4 to rd
+		EX_MEM.ALUOutput = ID_EX.PC + 4;
+		//update pc = rs1 + imm, so program can get
 		NEXT_STATE.PC = ID_EX.A + ID_EX.imm;
 		IF_ID.jumpStallCount = 1;
 		IF_ID.jumpDetected = TRUE;
@@ -704,6 +723,7 @@ void detect_hazard(uint32_t rs, uint32_t rt) {
 }
 void ID()
 {
+/*
 	if(IF_ID.jumpStallCount > 0 && IF_ID.jumpDetected == TRUE) {
 		//stall detected!
 		ID_EX.A = 0;
@@ -714,10 +734,9 @@ void ID()
 		ID_EX.IR = 0;
 		ID_EX.RegWrite = 0;
 		ID_EX.LMD = 0;
-		printf("Stall detected due to jump!\n");
 		return;
 	}
-	else if(IF_ID.jumpStallCount > 0) {
+	else*/ if(IF_ID.jumpStallCount > 0 || IF_ID.jumpDetected == TRUE) {
 		return;
 	}
 	uint32_t instruction = IF_ID.IR;
@@ -865,6 +884,9 @@ void IF()
 	if(IF_ID.StallCount > 0) {
 		IF_ID.StallCount--;
 		return;
+	}
+	else if(IF_ID.StallCount == 0 && IF_ID.jumpDetected == TRUE) {
+		IF_ID.jumpDetected = FALSE;
 	}
 	uint32_t instruction;
 	//Read in instruction based on PC
