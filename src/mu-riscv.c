@@ -324,7 +324,7 @@ void handle_pipeline()
 	MEM();
 	EX();
 	ID();
-	IF();\
+	IF();
 	//To stop execution when no syscalls are in the program. We assume the program has finished excution when the pipeline registers are completely flushed.
 	if(IF_ID.IR == 0 && MEM_WB.IR == 0 && ID_EX.IR == 0 && EX_MEM.IR == 0) {
 		printf("All pipeline registers empty, program execution complete!\n");
