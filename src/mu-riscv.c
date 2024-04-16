@@ -485,72 +485,73 @@ void EX_R_Processing(uint32_t instruction) {
 		default:
 			RUN_FLAG = FALSE;
 			break;
-	//b-type
-	case(99):
-		//need to recombine imm
-		uint32_t imm4_1and11 = (instruction & 3968) >> 7;
-		uint32_t imm12and10_5 = (instruction & 4261412864) >> 25;
-		uint32_t bit11 = (imm4_1and11 & 1) << 11;
-		uint32_t bits4_1 = imm4_1and11 & 30;
-		uint32_t bit12 = (imm12and10_5 & 64) << 6;
-		uint32_t bits10_5 = (imm12and10_5 & 63) << 5;
-		int32_t immediate = bit11 | bits4_1 | bit12 | bits10_5;
-		//if true, number is negative, so fill bits 13-31 with 1s
-		if((immediate & 4096) >> 12 == 1) {
-			immediate |= 4294959104;
-		}
-		switch(funct3) {
-			case 0: //beq
-				if(ID_EX.A == ID_EX.B){
-					//if these are the same, then jump will be done. Update the following cycle's PC with the new old PC + the data in immediate
-					IF_ID.jumpDetected = TRUE;
-					NEXT_STATE.PC = ID_EX.PC + immediate;
-				}
-				//Since we need to stall the following 2 instructions in every case for just 1 cycle, this will always be set to one, if the branch is taken or not
-				IF_ID.jumpStallCount = 1;
-			break;
-			case 1: //bne
-			//The following instructions are identical to beq besides the condition for comparing A & B
-				if(ID_EX.A != ID_EX.B){
-					IF_ID.jumpDetected = TRUE;
-					NEXT_STATE.PC = ID_EX.PC + immediate;
-				}
-				IF_ID.jumpStallCount = 1;
-			break;
-			case 4: //blt
-				if(ID_EX.A < ID_EX.B){
-					IF_ID.jumpDetected = TRUE;
-					NEXT_STATE.PC = ID_EX.PC + immediate;
+	}
+}
+void EX_Branch_Processing(uint32_t instruction) {
+	uint32_t funct3 = (instruction & 28672) >> 12;
+	//need to recombine imm
+	uint32_t imm4_1and11 = (instruction & 3968) >> 7;
+	uint32_t imm12and10_5 = (instruction & 4261412864) >> 25;
+	uint32_t bit11 = (imm4_1and11 & 1) << 11;
+	uint32_t bits4_1 = imm4_1and11 & 30;
+	uint32_t bit12 = (imm12and10_5 & 64) << 6;
+	uint32_t bits10_5 = (imm12and10_5 & 63) << 5;
+	int32_t immediate = bit11 | bits4_1 | bit12 | bits10_5;
+	//if true, number is negative, so fill bits 13-31 with 1s
+	if((immediate & 4096) >> 12 == 1) {
+		immediate |= 4294959104;
+	}
+	switch(funct3) {
+		case 0: //beq
+			if(ID_EX.A == ID_EX.B){
+				//if these are the same, then jump will be done. Update the following cycle's PC with the new old PC + the data in immediate
+				IF_ID.jumpDetected = TRUE;
+				NEXT_STATE.PC = ID_EX.PC + immediate;
+			}
+			//Since we need to stall the following 2 instructions in every case for just 1 cycle, this will always be set to one, if the branch is taken or not
+			IF_ID.jumpStallCount = 1;
+		break;
+		case 1: //bne
+		//The following instructions are identical to beq besides the condition for comparing A & B
+			if(ID_EX.A != ID_EX.B){
+				IF_ID.jumpDetected = TRUE;
+				NEXT_STATE.PC = ID_EX.PC + immediate;
+			}
+			IF_ID.jumpStallCount = 1;
+		break;
+		case 4: //blt
+			if(ID_EX.A < ID_EX.B){
+				IF_ID.jumpDetected = TRUE;
+				NEXT_STATE.PC = ID_EX.PC + immediate;
 
-				}
-				IF_ID.jumpStallCount = 1;
-			break;
-			case 5: //bge
-				if(ID_EX.A >= ID_EX.B){
-					IF_ID.jumpDetected = TRUE;
-					NEXT_STATE.PC = ID_EX.PC + immediate;
-				}
-				IF_ID.jumpStallCount = 1;
-			break;
-			case 6: //bltu
-				if(ID_EX.A < ID_EX.B){
-					IF_ID.jumpDetected = TRUE;
-					NEXT_STATE.PC = ID_EX.PC + immediate;
-				}
-				IF_ID.jumpStallCount = 1;
-			break;
-			case 7: //bgtu
-				if(ID_EX.A >= ID_EX.B){
-					IF_ID.jumpDetected = TRUE;
-					NEXT_STATE.PC = ID_EX.PC + immediate;
-				}
-				IF_ID.jumpStallCount = 1;
-			break;
-			default:
-				printf("Invalid instruction");
-				RUN_FLAG = FALSE;
-			break;
-		}
+			}
+			IF_ID.jumpStallCount = 1;
+		break;
+		case 5: //bge
+			if(ID_EX.A >= ID_EX.B){
+				IF_ID.jumpDetected = TRUE;
+				NEXT_STATE.PC = ID_EX.PC + immediate;
+			}
+			IF_ID.jumpStallCount = 1;
+		break;
+		case 6: //bltu
+			if(ID_EX.A < ID_EX.B){
+				IF_ID.jumpDetected = TRUE;
+				NEXT_STATE.PC = ID_EX.PC + immediate;
+			}
+			IF_ID.jumpStallCount = 1;
+		break;
+		case 7: //bgtu
+			if(ID_EX.A >= ID_EX.B){
+				IF_ID.jumpDetected = TRUE;
+				NEXT_STATE.PC = ID_EX.PC + immediate;
+			}
+			IF_ID.jumpStallCount = 1;
+		break;
+		default:
+			printf("Invalid instruction");
+			RUN_FLAG = FALSE;
+		break;
 	}
 }
 void EX_Iimm_Processing(uint32_t instruction) {
@@ -559,7 +560,7 @@ void EX_Iimm_Processing(uint32_t instruction) {
 	switch (funct3)
 	{
 	case 0: //addi
-	//Combine reg. A with Imm when processing I-Imm.
+		//Combine reg. A with Imm when processing I-Imm.
 		EX_MEM.ALUOutput = ID_EX.A + ID_EX.imm;
 		break;
 
@@ -607,14 +608,15 @@ void EX()
 	//flushing previous instruction
 	if(IF_ID.jumpDetected == TRUE) {
 		//stall detected!
-		ID_EX.A = 0;
-		ID_EX.B = 0;
-		ID_EX.ALUOutput = 0;
-		ID_EX.PC = 0;
-		ID_EX.imm = 0;
-		ID_EX.IR = 0;
-		ID_EX.RegWrite = 0;
-		ID_EX.LMD = 0;
+		EX_MEM.A = 0;
+		EX_MEM.B = 0;
+		EX_MEM.ALUOutput = 0;
+		EX_MEM.PC = 0;
+		EX_MEM.imm = 0;
+		EX_MEM.IR = 0;
+		EX_MEM.RegWrite = 0;
+		EX_MEM.LMD = 0;
+		return;
 	}
 	//Set appropriate registers
 	uint32_t instruction = ID_EX.IR;
@@ -650,9 +652,12 @@ void EX()
 	else if(opcode == 19) {
 		EX_Iimm_Processing(instruction);
 	}
-	//register-register
+	//register-register or branch
 	else if(opcode == 51) {
 		EX_R_Processing(instruction);
+	}
+	else if(opcode == 99) {
+		EX_Branch_Processing(instruction);
 	}
 }
 
@@ -723,8 +728,16 @@ void detect_hazard(uint32_t rs, uint32_t rt) {
 }
 void ID()
 {	
-	//This covers stalls/flushes. If either conditions are true, this stage will be skipped/stalled.
+	//This covers stalls/flushes. If either conditions are true, this stage will be skipped/stalled & a nop will be simulated
 	if(IF_ID.jumpStallCount > 0 || IF_ID.jumpDetected == TRUE) {
+		ID_EX.A = 0;
+		ID_EX.B = 0;
+		ID_EX.ALUOutput = 0;
+		ID_EX.PC = 0;
+		ID_EX.imm = 0;
+		ID_EX.IR = 0;
+		ID_EX.RegWrite = 0;
+		ID_EX.LMD = 0;
 		return;
 	}
 	uint32_t instruction = IF_ID.IR;
